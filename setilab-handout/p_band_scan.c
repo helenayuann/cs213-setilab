@@ -12,8 +12,69 @@
 #define ALIENS_LOW  50000.0
 #define ALIENS_HIGH 150000.0
 
+// make a struct for each thread
+typedef struct {
+  signal* sig;
+  int num_bands;
+  double* band_power;
+  double* filter_coeffs;
+  int start;
+  int end;
+  int num_proc;
+} thread_data;
+
+// make a thread_init function that given some
+// inputs it initializes and returns a thread object
+thread_data thread_init(){
+
+}
+
+// make a worker function that given a thread, performs
+// the band power calculations and adds it to the band
+// power array
+void worker(void* arg) {
+
+}
+
+// modify analyze_signal to create the threads and just
+// run everything simultaneously and then analyze the results
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 void usage() {
-  printf("usage: band_scan text|bin|mmap signal_file Fs filter_order num_bands\n");
+  printf("usage: band_scan text|bin|mmap signal_file Fs filter_order num_bands num_threads num_processors\n");
 }
 
 double avg_power(double* data, int num) {
@@ -58,7 +119,7 @@ void remove_dc(double* data, int num) {
 }
 
 
-int analyze_signal(signal* sig, int filter_order, int num_bands, double* lb, double* ub) {
+int analyze_signal(signal* sig, int filter_order, int num_bands, double* lb, double* ub, int num_threads, int num_proc) {
 
   double Fc        = (sig->Fs) / 2;
   double bandwidth = Fc / num_bands;
@@ -168,7 +229,7 @@ Context switches %ld\n",
 
 int main(int argc, char* argv[]) {
 
-  if (argc != 6) {
+  if (argc != 8) {
     usage();
     return -1;
   }
@@ -178,6 +239,8 @@ int main(int argc, char* argv[]) {
   double Fs        = atof(argv[3]);
   int filter_order = atoi(argv[4]);
   int num_bands    = atoi(argv[5]);
+  int num_threads  = atoi(argv[6]);
+  int num_proc     = atoi(argv[7]);
 
   assert(Fs > 0.0);
   assert(filter_order > 0 && !(filter_order & 0x1));
@@ -187,12 +250,16 @@ int main(int argc, char* argv[]) {
 file:     %s\n\
 Fs:       %lf Hz\n\
 order:    %d\n\
-bands:    %d\n",
+bands:    %d\n\
+threads:  %d\n\
+processors: %d\n",
          sig_type == 'T' ? "Text" : (sig_type == 'B' ? "Binary" : (sig_type == 'M' ? "Mapped Binary" : "UNKNOWN TYPE")),
          sig_file,
          Fs,
          filter_order,
-         num_bands);
+         num_bands,
+         num_threads,
+         num_proc);
 
   printf("Load or map file\n");
 
@@ -224,7 +291,7 @@ bands:    %d\n",
 
   double start = 0;
   double end   = 0;
-  if (analyze_signal(sig, filter_order, num_bands, &start, &end)) {
+  if (analyze_signal(sig, filter_order, num_bands, &start, &end, num_threads, num_proc)) {
     printf("POSSIBLE ALIENS %lf-%lf HZ (CENTER %lf HZ)\n", start, end, (end + start) / 2.0);
   } else {
     printf("no aliens\n");
