@@ -68,7 +68,7 @@ void* worker(void* arg) {
   }
 
   // Done.  The master thread will sum up the partial sums
-  pthread_exit(NULL);           // finish - no return value
+  a           // finish - no return value
 
 }
 
