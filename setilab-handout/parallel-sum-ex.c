@@ -68,7 +68,9 @@ void* worker(void* arg) {
   }
 
   // Done.  The master thread will sum up the partial sums
-  a           // finish - no return value
+  for (int i = 0; i < num_threads; i++) {
+    
+  }           // finish - no return value
 
 }
 

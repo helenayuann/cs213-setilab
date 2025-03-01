@@ -1,8 +1,11 @@
+#define _GNU_SOURCE
 #include <stdlib.h>
 #include <stdio.h>
 #include <ctype.h>
 #include <assert.h>
 #include <pthread.h>
+#include <unistd.h>
+#include <sched.h>
 
 #include "filter.h"
 #include "signal.h"
@@ -18,16 +21,11 @@ typedef struct {
   signal* sig;
   double* band_power;
   int filter_order;
+  int num_bands;
   int id;
   int num_threads;
   int num_processors;
 } thread_data;
-
-// make a thread_init function that given some
-// inputs it initializes and returns a thread object
-thread_data thread_init(){
-
-}
 
 // make a worker function that given a thread, performs
 // the band power calculations and adds it to the band
@@ -42,9 +40,15 @@ thread_data thread_init(){
 // how to do that
 //
 // maybe just do the suboptimal solution first :D
-void worker(thread_data* arg) {
-  thread_data* curr_thread     = (thread_data*)arg;
-  int num_bands = curr_thread->sig->num_samples / curr_thread->num_threads;
+//
+// uhhh bands.
+//
+// divide the num_samples into the bands and the bands
+// into the threads i think
+void* worker(thread_data* arg) {
+  thread_data* curr_thread = (thread_data*)arg;
+  int bands_per_thread = curr_thread->num_bands / curr_thread->num_threads;
+  int remainder = curr_thread->num_bands % curr_thread->num_threads;
 
   // put ourselves on the desired processor
   cpu_set_t set;
@@ -55,26 +59,21 @@ void worker(thread_data* arg) {
     exit(-1);
   }
 
-  double Fc        = (curr_thread->sig->Fs) / 2;
-  double bandwidth = Fc / num_bands;
-
   // This figures out the chunk of the vector I should
   // work on based on my id
-  int mystart = curr_thread->id * num_bands;
+  int mystart = curr_thread->id * bands_per_thread;
   int myend   = 0;
-  double* filter_coeffs[curr_thread->filter_order + 1];
-  if (curr_thread->id == (curr_thread->num_threads - 1)) { // last thread
-    // the last thread will take care of the leftover
-    // elements of the vector, in case num_threads doesn't
-    // divide vector_len
-    // WARNING: this is a suboptimal solution. It means that the last thread
-    // might do much more work than the other threads (up to almost double)
-    // which will slow down the entire job. A better solution would split up
-    // remainder work equally between threads...
-    myend = curr_thread->sig->num_samples;
+  double filter_coeffs[curr_thread->filter_order + 1];
+  if (curr_thread->id < remainder) {
+    mystart += curr_thread->id;
+    myend += mystart + bands_per_thread + 1;
   } else {
-    myend = (curr_thread->id + 1) * num_bands;
+    mystart += remainder;
+    myend = mystart + bands_per_thread;
   }
+
+  double Fc = (curr_thread->sig->Fs) / 2;
+  double bandwidth = Fc / curr_thread->num_bands;
 
   // analyze signal
   for (int band = mystart; band < myend; band++) {
@@ -96,7 +95,6 @@ void worker(thread_data* arg) {
   }
 
   pthread_exit(NULL);
-
 }
 
 void usage() {
@@ -146,11 +144,14 @@ void remove_dc(double* data, int num) {
 
 
 int analyze_signal(signal* sig, int filter_order, int num_bands, double* lb, double* ub, int num_threads, int num_processors) {
-  pthread_t tid[num_threads];
-  thread_data threads[num_threads];
-  double band_power[num_bands];
+  pthread_t* tid;
+  tid = (pthread_t*)malloc(num_threads * sizeof(pthread_t));
+  thread_data* threads;
+  threads = (thread_data*)malloc(num_threads * sizeof(thread_data));
+  double* band_power;
+  band_power = (double*)malloc(num_bands * sizeof(double));
 
-  double Fc        = (sig->Fs) / 2;
+  double Fc = (sig->Fs) / 2;
   double bandwidth = Fc / num_bands;
 
   remove_dc(sig->data,sig->num_samples);
@@ -192,9 +193,9 @@ int analyze_signal(signal* sig, int filter_order, int num_bands, double* lb, dou
     threads[i].band_power     = band_power;
     threads[i].filter_order   = filter_order;
     threads[i].id             = i;
+    threads[i].num_bands      = num_bands;
     threads[i].num_processors = num_processors;
     threads[i].num_threads    = num_threads;
-
   }
 
   // launch the threads!!!!!
