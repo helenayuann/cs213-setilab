@@ -1,9 +1,43 @@
+#define _GNU_SOURCE
 #include <math.h>
 #include <assert.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <unistd.h>
+#include <sched.h>
 
 #include "filter.h"
+
+// // commonly used variables
+// int num_processors
+
+// // make a struct for the inputs in convolve_and_compute_power
+// typedef struct {
+//   int length;
+//   double* input_signal;
+//   int order;
+//   double* coeffs;
+//   double* power;
+//   int id;
+// } convolve_data;
+
+// // make a worker function
+// void* worker(void* arg) {
+//   convolve_data* data = (convolve_data*) arg;
+
+//   // put ourselves on the desired processor
+//   cpu_set_t set;
+//   CPU_ZERO(&set);
+//   CPU_SET(data->id % num_processors, &set);
+//   if (sched_setaffinity(0, sizeof(set), &set) < 0) { // do it
+//     perror("Can't setaffinity"); // hopefully doesn't fail
+//     exit(-1);
+//   }
+
+//   pthread_exit(NULL);
+// }
+
+// // in original function, initialize struct, start threads, join threads
 
 int generate_low_pass(double Fs, double Fc,
                       int order, double coeffs[]) {

@@ -2,3 +2,7 @@
                   -t "Suspiciously Efficient Thread Individuals" \
                   -k 0fe93be239cc89e60442ac78a159248b \
                   -a 2
+
+./scripts/seti-run -n rcg0719_lgh0767 --test
+
+./scripts/seti-look

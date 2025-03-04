@@ -16,15 +16,18 @@
 #define ALIENS_LOW  50000.0
 #define ALIENS_HIGH 150000.0
 
+// commonly used variables
+int num_bands = 0;
+int num_threads = 0;
+int num_processors = 0;
+double* band_power;
+
 // make a struct for each thread
 typedef struct {
   signal* sig;
-  double* band_power;
   int filter_order;
-  int num_bands;
+  double bandwidth;
   int id;
-  int num_threads;
-  int num_processors;
 } thread_data;
 
 // make a worker function that given a thread, performs
@@ -45,15 +48,15 @@ typedef struct {
 //
 // divide the num_samples into the bands and the bands
 // into the threads i think
-void* worker(thread_data* arg) {
+void* worker(void* arg) {
   thread_data* curr_thread = (thread_data*)arg;
-  int bands_per_thread = curr_thread->num_bands / curr_thread->num_threads;
-  int remainder = curr_thread->num_bands % curr_thread->num_threads;
+  int bands_per_thread = num_bands / num_threads;
+  int remainder = num_bands % num_threads;
 
   // put ourselves on the desired processor
   cpu_set_t set;
   CPU_ZERO(&set);
-  CPU_SET(curr_thread->id % curr_thread->num_processors, &set);
+  CPU_SET(curr_thread->id % num_processors, &set);
   if (sched_setaffinity(0, sizeof(set), &set) < 0) { // do it
     perror("Can't setaffinity"); // hopefully doesn't fail
     exit(-1);
@@ -62,25 +65,25 @@ void* worker(thread_data* arg) {
   // This figures out the chunk of the vector I should
   // work on based on my id
   int mystart = curr_thread->id * bands_per_thread;
-  int myend   = 0;
-  double filter_coeffs[curr_thread->filter_order + 1];
-  if (curr_thread->id < remainder) {
-    mystart += curr_thread->id;
-    myend += mystart + bands_per_thread + 1;
-  } else {
-    mystart += remainder;
-    myend = mystart + bands_per_thread;
+  int myend   = mystart + bands_per_thread;
+  if (remainder != 0) {
+    if (curr_thread->id < remainder) {
+      mystart += curr_thread->id;
+      myend += 1 + curr_thread->id;
+    } else {
+      mystart += remainder;
+      myend += remainder;
+    }
   }
 
-  double Fc = (curr_thread->sig->Fs) / 2;
-  double bandwidth = Fc / curr_thread->num_bands;
+  double filter_coeffs[curr_thread->filter_order + 1];
 
   // analyze signal
   for (int band = mystart; band < myend; band++) {
     // Make the filter
     generate_band_pass(curr_thread->sig->Fs,
-                       band * bandwidth + 0.0001, // keep within limits
-                       (band + 1) * bandwidth - 0.0001,
+                       band * curr_thread->bandwidth + 0.0001, // keep within limits
+                       (band + 1) * curr_thread->bandwidth - 0.0001,
                        curr_thread->filter_order,
                        filter_coeffs);
     hamming_window(curr_thread->filter_order,filter_coeffs);
@@ -90,7 +93,7 @@ void* worker(thread_data* arg) {
                                curr_thread->sig->data,
                                curr_thread->filter_order,
                                filter_coeffs,
-                               &(curr_thread->band_power[band]));
+                               &(band_power[band]));
 
   }
 
@@ -143,12 +146,14 @@ void remove_dc(double* data, int num) {
 }
 
 
-int analyze_signal(signal* sig, int filter_order, int num_bands, double* lb, double* ub, int num_threads, int num_processors) {
+int analyze_signal(signal* sig, int filter_order, int num_bands, double* lb, double* ub) {
+  if (num_bands < num_threads) {
+    num_threads = num_bands;
+  }
   pthread_t* tid;
   tid = (pthread_t*)malloc(num_threads * sizeof(pthread_t));
   thread_data* threads;
   threads = (thread_data*)malloc(num_threads * sizeof(thread_data));
-  double* band_power;
   band_power = (double*)malloc(num_bands * sizeof(double));
 
   double Fc = (sig->Fs) / 2;
@@ -190,12 +195,10 @@ int analyze_signal(signal* sig, int filter_order, int num_bands, double* lb, dou
   // need to initialize all the structs and put them in an array
   for (int i = 0; i <  num_threads; i++) {
     threads[i].sig            = sig;
-    threads[i].band_power     = band_power;
     threads[i].filter_order   = filter_order;
     threads[i].id             = i;
-    threads[i].num_bands      = num_bands;
-    threads[i].num_processors = num_processors;
-    threads[i].num_threads    = num_threads;
+    threads[i].bandwidth      = bandwidth;
+
   }
 
   // launch the threads!!!!!
@@ -211,13 +214,14 @@ int analyze_signal(signal* sig, int filter_order, int num_bands, double* lb, dou
     }
   }
 
-  // now we will join all the threads
+  // now joining the threads
   for (int i = 0; i < num_threads; i++) {
     int returncode = pthread_join(tid[i], NULL);
     if (returncode != 0) {
       perror("join failed");
       exit(-1);
     }
+
   }
 
   // ok and then analyze...
@@ -305,9 +309,9 @@ int main(int argc, char* argv[]) {
   char* sig_file   = argv[2];
   double Fs        = atof(argv[3]);
   int filter_order = atoi(argv[4]);
-  int num_bands    = atoi(argv[5]);
-  int num_threads  = atoi(argv[6]);
-  int num_processors = atoi(argv[7]);
+  num_bands    = atoi(argv[5]);
+  num_threads  = atoi(argv[6]);
+  num_processors = atoi(argv[7]);
 
   assert(Fs > 0.0);
   assert(filter_order > 0 && !(filter_order & 0x1));
@@ -358,7 +362,7 @@ processors: %d\n",
 
   double start = 0;
   double end   = 0;
-  if (analyze_signal(sig, filter_order, num_bands, &start, &end, num_threads, num_processors)) {
+  if (analyze_signal(sig, filter_order, num_bands, &start, &end)) {
     printf("POSSIBLE ALIENS %lf-%lf HZ (CENTER %lf HZ)\n", start, end, (end + start) / 2.0);
   } else {
     printf("no aliens\n");
